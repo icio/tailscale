@@ -92,6 +92,8 @@ func (lc *LocalClient) defaultDialer(ctx context.Context, network, addr string) 
 	if addr != "local-tailscaled.sock:80" {
 		return nil, fmt.Errorf("unexpected URL address %q", addr)
 	}
+
+	var dialErr error
 	if !lc.UseSocketOnly {
 		// On macOS, when dialing from non-sandboxed program to sandboxed GUI running
 		// a TCP server on a random port, find the random port. For HTTP connections,
@@ -99,11 +101,20 @@ func (lc *LocalClient) defaultDialer(ctx context.Context, network, addr string) 
 		if port, _, err := safesocket.LocalTCPPortAndToken(); err == nil {
 			// We use 127.0.0.1 and not "localhost" (issue 7851).
 			var d net.Dialer
-			return d.DialContext(ctx, "tcp", "127.0.0.1:"+strconv.Itoa(port))
+			conn, err := d.DialContext(ctx, "tcp", "127.0.0.1:"+strconv.Itoa(port))
+			if err == nil {
+				return conn, nil
+			}
+			dialErr = err
 		}
 	}
+
 	s := safesocket.DefaultConnectionStrategy(lc.socket())
-	return safesocket.Connect(s)
+	conn, err := safesocket.Connect(s)
+	if err != nil {
+		return nil, errors.Join(dialErr, err)
+	}
+	return conn, nil
 }
 
 // DoLocalRequest makes an HTTP request to the local machine's Tailscale daemon.
